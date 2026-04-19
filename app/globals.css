@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 甘特图拖拽样式 */
+.gantt-task {
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow 0.15s ease;
+}
+.gantt-task:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+.gantt-task.dragging {
+  cursor: grabbing;
+  opacity: 0.75;
+  z-index: 20;
+}
+
+/* 打印样式(PDF 导出) */
+@media print {
+  .no-print { display: none !important; }
+}
