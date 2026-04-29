@@ -11,7 +11,7 @@ import type {
   ViewMode,
 } from "@/types";
 import { STATUS_LABEL } from "@/types";
-import { seedDefaultLinesIfEmpty, storage } from "@/lib/storage";
+import { api } from "@/lib/storage";
 import {
   downloadImportTemplate,
   exportOrdersToExcel,
@@ -46,46 +46,71 @@ export default function Home() {
 
   // 多选(用于批量偏移)
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 从数据库加载数据
+  async function refreshData() {
+    try {
+      const [linesData, ordersData] = await Promise.all([
+        api.loadLines(),
+        api.loadOrders(),
+      ]);
+      setLines(linesData);
+      setOrders(ordersData);
+    } catch (e) {
+      console.error("加载数据失败:", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // 初始化
   useEffect(() => {
-    seedDefaultLinesIfEmpty();
-    setLines(storage.loadLines());
-    setOrders(storage.loadOrders());
+    api.seed().then(() => refreshData());
   }, []);
 
-  // 持久化
-  useEffect(() => {
-    storage.saveLines(lines);
-  }, [lines]);
-  useEffect(() => {
-    storage.saveOrders(orders);
-  }, [orders]);
-
   // 订单 CRUD
-  function saveOrder(order: ProductionOrder) {
-    setOrders((prev) => {
-      const exists = prev.some((o) => o.id === order.id);
-      return exists
-        ? prev.map((o) => (o.id === order.id ? order : o))
-        : [...prev, order];
-    });
-    setOrderDialog({ open: false, order: null });
+  async function saveOrder(order: ProductionOrder) {
+    try {
+      await api.saveOrder(order);
+      setOrders((prev) => {
+        const exists = prev.some((o) => o.id === order.id);
+        return exists
+          ? prev.map((o) => (o.id === order.id ? order : o))
+          : [...prev, order];
+      });
+      setOrderDialog({ open: false, order: null });
+    } catch (e: any) {
+      alert("保存失败: " + e.message);
+    }
   }
-  function deleteOrder(id: string) {
-    setOrders((prev) => prev.filter((o) => o.id !== id));
-    setOrderDialog({ open: false, order: null });
+  async function deleteOrder(id: string) {
+    try {
+      await api.deleteOrder(id);
+      setOrders((prev) => prev.filter((o) => o.id !== id));
+      setOrderDialog({ open: false, order: null });
+    } catch (e: any) {
+      alert("删除失败: " + e.message);
+    }
   }
-  function updateOrder(id: string, patch: Partial<ProductionOrder>) {
-    setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, ...patch } : o))
-    );
+  async function updateOrder(id: string, patch: Partial<ProductionOrder>) {
+    const order = orders.find((o) => o.id === id);
+    if (!order) return;
+    const updated = { ...order, ...patch };
+    try {
+      await api.saveOrder(updated);
+      setOrders((prev) =>
+        prev.map((o) => (o.id === id ? updated : o))
+      );
+    } catch (e: any) {
+      alert("更新失败: " + e.message);
+    }
   }
 
   // 取消订单(仅未开工):释放产能
-  function cancelPendingOrder(id: string) {
+  async function cancelPendingOrder(id: string) {
     const order = orders.find((o) => o.id === id);
     if (!order) return;
     if (order.status !== "pending") {
@@ -93,23 +118,38 @@ export default function Home() {
     }
     if (!confirm(`确定取消订单 ${order.orderNo} 吗? 该时间段产能将被释放。`))
       return;
-    setOrders((prev) => prev.filter((o) => o.id !== id));
-    alert(`✅ 订单 ${order.orderNo} 已取消,产能已释放。`);
+    try {
+      await api.deleteOrder(id);
+      setOrders((prev) => prev.filter((o) => o.id !== id));
+      alert(`✅ 订单 ${order.orderNo} 已取消,产能已释放。`);
+    } catch (e: any) {
+      alert("取消失败: " + e.message);
+    }
   }
 
   // 产线 CRUD
-  function saveLine(line: ProductionLine) {
-    setLines((prev) => {
-      const exists = prev.some((l) => l.id === line.id);
-      return exists
-        ? prev.map((l) => (l.id === line.id ? line : l))
-        : [...prev, line];
-    });
-    setLineDialog({ open: false, line: null });
+  async function saveLine(line: ProductionLine) {
+    try {
+      await api.saveLine(line);
+      setLines((prev) => {
+        const exists = prev.some((l) => l.id === line.id);
+        return exists
+          ? prev.map((l) => (l.id === line.id ? line : l))
+          : [...prev, line];
+      });
+      setLineDialog({ open: false, line: null });
+    } catch (e: any) {
+      alert("保存失败: " + e.message);
+    }
   }
-  function deleteLine(id: string) {
-    setLines((prev) => prev.filter((l) => l.id !== id));
-    setLineDialog({ open: false, line: null });
+  async function deleteLine(id: string) {
+    try {
+      await api.deleteLine(id);
+      setLines((prev) => prev.filter((l) => l.id !== id));
+      setLineDialog({ open: false, line: null });
+    } catch (e: any) {
+      alert("删除失败: " + e.message);
+    }
   }
 
   // Excel 导入
@@ -133,35 +173,48 @@ export default function Home() {
       alert("没有可导入的数据");
       return;
     }
-    setOrders((prev) => [...prev, ...res.success]);
-    alert(`✅ 成功导入 ${res.success.length} 条订单`);
+    try {
+      await api.saveOrders(res.success);
+      setOrders((prev) => [...prev, ...res.success]);
+      alert(`✅ 成功导入 ${res.success.length} 条订单`);
+    } catch (e: any) {
+      alert("导入保存失败: " + e.message);
+    }
   }
 
   // 批量时间偏移
-  function batchShiftOrders(hours: number) {
+  async function batchShiftOrders(hours: number) {
     if (selectedOrders.length === 0) {
       return alert("请先在订单列表中勾选要偏移的订单");
     }
     const ms = hours * 3600000;
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (!selectedOrders.includes(o.id)) return o;
-        return {
-          ...o,
-          plannedStart: new Date(
-            new Date(o.plannedStart).getTime() + ms
-          ).toISOString(),
-          plannedEnd: new Date(
-            new Date(o.plannedEnd).getTime() + ms
-          ).toISOString(),
-        };
-      })
-    );
-    alert(
-      `✅ 已将 ${selectedOrders.length} 个订单${hours > 0 ? "延后" : "提前"} ${Math.abs(
-        hours
-      )} 小时`
-    );
+    const updated = orders
+      .filter((o) => selectedOrders.includes(o.id))
+      .map((o) => ({
+        ...o,
+        plannedStart: new Date(
+          new Date(o.plannedStart).getTime() + ms
+        ).toISOString(),
+        plannedEnd: new Date(
+          new Date(o.plannedEnd).getTime() + ms
+        ).toISOString(),
+      }));
+    try {
+      await api.saveOrders(updated);
+      setOrders((prev) =>
+        prev.map((o) => {
+          const u = updated.find((x) => x.id === o.id);
+          return u || o;
+        })
+      );
+      alert(
+        `✅ 已将 ${selectedOrders.length} 个订单${hours > 0 ? "延后" : "提前"} ${Math.abs(
+          hours
+        )} 小时`
+      );
+    } catch (e: any) {
+      alert("批量偏移失败: " + e.message);
+    }
   }
 
   // 导航
@@ -222,7 +275,16 @@ export default function Home() {
       </header>
 
       <main className="max-w-[1600px] mx-auto p-6">
-        {activeTab === "board" && (
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="text-center">
+              <div className="inline-block w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+              <p className="text-slate-500 text-sm">正在加载数据...</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {activeTab === "board" && (
           <BoardView
             lines={lines}
             orders={orders}
@@ -262,6 +324,8 @@ export default function Home() {
             onEdit={(l) => setLineDialog({ open: true, line: l })}
             onNew={() => setLineDialog({ open: true, line: null })}
           />
+        )}
+          </>
         )}
       </main>
 
