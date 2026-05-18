@@ -278,7 +278,12 @@ export default function GanttChart({
         {/* 各产线行 */}
         {lines.map((line, rowIdx) => {
           const light = calcCapacityLight(line.id, orders);
-          const lineOrders = orders.filter((o) => o.lineId === line.id);
+          // 只统计该产线在产(running)和待启动(pending)的订单
+          const activeOrders = orders.filter(
+            (o) =>
+              o.lineId === line.id &&
+              (o.status === "running" || o.status === "pending")
+          );
           return (
             <div
               key={line.id}
@@ -306,8 +311,13 @@ export default function GanttChart({
                   <div className="text-sm font-medium text-slate-800 truncate">
                     {line.id}
                   </div>
+                  {line.name !== line.id && (
+                    <div className="text-[10px] text-slate-400 truncate">
+                      {line.name}
+                    </div>
+                  )}
                   <div className="text-[10px] text-slate-500 truncate">
-                    {lineOrders.length} 个订单
+                    {activeOrders.length} 个在产/待产订单
                   </div>
                 </div>
               </div>
