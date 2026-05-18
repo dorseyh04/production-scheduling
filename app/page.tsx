@@ -228,14 +228,34 @@ export default function Home() {
 
   // 汇总统计
   const stats = useMemo(() => {
-    const total = orders.length;
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    
+    // 本月订单(按开工时间判断)
+    const thisMonthOrders = orders.filter((o) => {
+      const start = new Date(o.plannedStart);
+      return start >= thisMonthStart && start <= thisMonthEnd;
+    });
+    
+    const total = thisMonthOrders.length;
+    
+    // 已排产待启动:状态为pending
+    const pending = orders.filter((o) => o.status === "pending").length;
+    
+    // 已排产进行中:状态为running
+    const running = orders.filter((o) => o.status === "running").length;
+    
+    // 本月已完成:状态为completed且开工时间在本月
+    const completed = thisMonthOrders.filter((o) => o.status === "completed").length;
+    
     const byStatus: Record<OrderStatus, number> = {
-      pending: 0,
-      running: 0,
-      completed: 0,
-      paused: 0,
+      pending,
+      running,
+      completed,
+      paused: 0, // 暂停的不单独统计
     };
-    orders.forEach((o) => (byStatus[o.status] = (byStatus[o.status] || 0) + 1));
+    
     return { total, byStatus };
   }, [orders]);
 
@@ -380,19 +400,19 @@ function BoardView({
     <div className="space-y-4">
       {/* 统计卡片 */}
       <div className="grid grid-cols-5 gap-3 no-print">
-        <StatCard label="订单总数" value={stats.total} color="#0f172a" />
+        <StatCard label="本月订单总数" value={stats.total} color="#0f172a" />
         <StatCard
-          label="待启动"
+          label="已排产待启动"
           value={stats.byStatus.pending}
           color="#94a3b8"
         />
         <StatCard
-          label="进行中"
+          label="已排产进行中"
           value={stats.byStatus.running}
           color="#3b82f6"
         />
         <StatCard
-          label="已完成"
+          label="本月已完成"
           value={stats.byStatus.completed}
           color="#10b981"
         />
